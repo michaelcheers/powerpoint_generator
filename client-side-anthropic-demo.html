@@ -177,13 +177,13 @@
                         
                         // Parse the SSE chunks from the stream
                         chunk.split('\n\n').forEach(event => {
-                            if (event.startsWith('event: message_stream_event') && event.includes('data:')) {
+                            if (event.startsWith('event: content_block_delta') && event.includes('data:')) {
                                 const data = event.substring(event.indexOf('data:') + 5).trim();
                                 if (data) {
                                     try {
                                         const parsedData = JSON.parse(data);
-                                        // The text is in different locations depending on the event type
-                                        if (parsedData.type === 'content_block_delta' && parsedData.delta.text) {
+                                        // Extract text from the new format
+                                        if (parsedData.type === 'content_block_delta' && parsedData.delta && parsedData.delta.text) {
                                             chatLog.innerHTML += parsedData.delta.text;
                                         }
                                     } catch (e) {

@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PowerPoint Generator with Claude</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .chat-container {
+            height: 40vh;
+            overflow-y: auto;
+            border-radius: 0.5rem;
+            background-color: #2D3748;
+            padding: 1rem;
+            color: #E2E8F0;
+        }
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-container::-webkit-scrollbar-track {
+            background: #1A202C;
+            border-radius: 10px;
+        }
+        .chat-container::-webkit-scrollbar-thumb {
+            background-color: #4A5568;
+            border-radius: 10px;
+            border: 2px solid #1A202C;
+        }
+        .preview-container {
+            max-height: 60vh;
+            overflow-y: auto;
+            border: 2px solid #4A5568;
+            border-radius: 0.5rem;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background-color: #4A5568;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3B82F6, #10B981);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+
+        <h1 class="text-4xl font-bold text-center text-white mb-8">🎯 PowerPoint Generator with Claude</h1>
+
+        <!-- API Keys Section -->
+        <div class="grid md:grid-cols-2 gap-6">
+            <!-- Anthropic API Key -->
+            <div class="bg-gray-800 p-6 rounded-xl">
+                <h2 class="text-xl font-bold mb-4 text-blue-400">Claude API Setup</h2>
+                <div class="space-y-4">
+                    <input type="password" id="anthropicApiKey" placeholder="Enter your Anthropic API Key"
+                           class="w-full p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button id="saveAnthropicKey"
+                            class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md transition-colors">
+                        Save Claude Key
+                    </button>
+                </div>
+            </div>
+
+            <!-- CloudConvert API Key -->
+            <div class="bg-gray-800 p-6 rounded-xl">
+                <h2 class="text-xl font-bold mb-4 text-green-400">CloudConvert API Setup</h2>
+                <div class="space-y-4">
+                    <input type="password" id="cloudconvertApiKey" placeholder="Enter your CloudConvert API Key"
+                           class="w-full p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <button id="saveCloudConvertKey"
+                            class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-md transition-colors">
+                        Save CloudConvert Key
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Section -->
+        <div class="bg-gray-800 p-6 rounded-xl">
+            <h2 class="text-xl font-bold mb-4 text-white">💬 Chat with Claude</h2>
+            <div class="chat-container mb-4">
+                <p id="chatLog" class="whitespace-pre-wrap"></p>
+            </div>
+            <div class="space-y-4">
+                <textarea id="promptInput" rows="3" placeholder="Describe the PowerPoint presentation you want to create..."
+                          class="w-full p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                <button id="generatePresentation"
+                        class="w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-md transition-colors">
+                    🎯 Generate Presentation
+                </button>
+            </div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progressSection" class="bg-gray-800 p-6 rounded-xl hidden">
+            <h2 class="text-xl font-bold mb-4 text-white">📊 Generation Progress</h2>
+            <div class="space-y-4">
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <p id="progressText" class="text-center text-gray-300">Starting...</p>
+            </div>
+        </div>
+
+        <!-- Preview Section -->
+        <div id="previewSection" class="bg-gray-800 p-6 rounded-xl hidden">
+            <h2 class="text-xl font-bold mb-4 text-white">👀 Preview</h2>
+            <div class="preview-container">
+                <iframe id="previewFrame" class="w-full h-96 bg-white rounded"></iframe>
+            </div>
+            <div class="mt-4 flex gap-4">
+                <button id="downloadPPTX" class="flex-1 px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-md transition-colors">
+                    📥 Download PowerPoint
+                </button>
+                <button id="editPresentation" class="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md transition-colors">
+                    ✏️ Edit Presentation
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Global variables
+        let generatedHTML = '';
+        let finalPPTXUrl = '';
+
+        // API endpoints
+        const ANTHROPIC_API_ENDPOINT = 'https://api.anthropic.com/v1/messages';
+        const CLOUDCONVERT_API_ENDPOINT = 'https://api.cloudconvert.com/v2';
+
+        // DOM elements
+        const anthropicApiKey = document.getElementById('anthropicApiKey');
+        const cloudconvertApiKey = document.getElementById('cloudconvertApiKey');
+        const saveAnthropicKey = document.getElementById('saveAnthropicKey');
+        const saveCloudConvertKey = document.getElementById('saveCloudConvertKey');
+        const promptInput = document.getElementById('promptInput');
+        const generatePresentation = document.getElementById('generatePresentation');
+        const chatLog = document.getElementById('chatLog');
+        const progressSection = document.getElementById('progressSection');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const previewSection = document.getElementById('previewSection');
+        const previewFrame = document.getElementById('previewFrame');
+        const downloadPPTX = document.getElementById('downloadPPTX');
+        const editPresentation = document.getElementById('editPresentation');
+
+        // Load saved API keys
+        function loadApiKeys() {
+            const storedAnthropicKey = localStorage.getItem('anthropicApiKey');
+            const storedCloudConvertKey = localStorage.getItem('cloudconvertApiKey');
+
+            if (storedAnthropicKey) {
+                anthropicApiKey.value = storedAnthropicKey;
+                chatLog.innerHTML = `<span class="text-green-400">Claude API Key loaded.</span>\n`;
+            }
+
+            if (storedCloudConvertKey) {
+                cloudconvertApiKey.value = storedCloudConvertKey;
+                chatLog.innerHTML += `<span class="text-green-400">CloudConvert API Key loaded.</span>\n`;
+            }
+
+            if (!storedAnthropicKey || !storedCloudConvertKey) {
+                chatLog.innerHTML += `<span class="text-yellow-400">Please enter and save your API keys to begin.</span>\n`;
+            }
+        }
+
+        // Save API keys
+        saveAnthropicKey.addEventListener('click', () => {
+            const key = anthropicApiKey.value.trim();
+            if (key) {
+                localStorage.setItem('anthropicApiKey', key);
+                chatLog.innerHTML += `<span class="text-green-400">Claude API Key saved!</span>\n`;
+            } else {
+                chatLog.innerHTML += `<span class="text-red-400">Please enter a valid API key.</span>\n`;
+            }
+            chatLog.scrollTop = chatLog.scrollHeight;
+        });
+
+        saveCloudConvertKey.addEventListener('click', () => {
+            const key = cloudconvertApiKey.value.trim();
+            if (key) {
+                localStorage.setItem('cloudconvertApiKey', key);
+                chatLog.innerHTML += `<span class="text-green-400">CloudConvert API Key saved!</span>\n`;
+            } else {
+                chatLog.innerHTML += `<span class="text-red-400">Please enter a valid API key.</span>\n`;
+            }
+            chatLog.scrollTop = chatLog.scrollHeight;
+        });
+
+        // Update progress
+        function updateProgress(percentage, text) {
+            progressFill.style.width = percentage + '%';
+            progressText.textContent = text;
+        }
+
+        // Global slides storage
+        let slides = {};
+
+        // Renumber slides to maintain sequence after deletion
+        function renumberSlides() {
+            const slideNumbers = Object.keys(slides).map(n => parseInt(n)).sort((a, b) => a - b);
+            const newSlides = {};
+
+            slideNumbers.forEach((oldNumber, index) => {
+                const newNumber = index + 1;
+                newSlides[newNumber] = slides[oldNumber];
+            });
+
+            slides = newSlides;
+        }
+
+        // Generate presentation with Claude using proper tool use conversation
+        async function generateWithClaude(prompt) {
+            const apiKey = anthropicApiKey.value.trim();
+            if (!apiKey) {
+                throw new Error('Claude API key is required');
+            }
+
+            // Define slide management tools
+            const tools = [
+                {
+                    name: "read_slide",
+                    description: "Read the current HTML content of a specific slide",
+                    input_schema: {
+                        type: "object",
+                        properties: {
+                            slide_number: {
+                                type: "integer",
+                                description: "Slide number to read (1, 2, 3...)"
+                            }
+                        },
+                        required: ["slide_number"]
+                    }
+                },
+                {
+                    name: "edit_slide",
+                    description: "Create or edit a slide in the presentation with complete HTML content",
+                    input_schema: {
+                        type: "object",
+                        properties: {
+                            slide_number: {
+                                type: "integer",
+                                description: "Slide number (1, 2, 3...)"
+                            },
+                            html: {
+                                type: "string",
+                                description: "Complete HTML for this slide using the required CSS structure with class='slide'"
+                            }
+                        },
+                        required: ["slide_number", "html"]
+                    }
+                },
+                {
+                    name: "delete_slide",
+                    description: "Delete a slide from the presentation",
+                    input_schema: {
+                        type: "object",
+                        properties: {
+                            slide_number: {
+                                type: "integer",
+                                description: "Slide number to delete (1, 2, 3...)"
+                            }
+                        },
+                        required: ["slide_number"]
+                    }
+                }
+            ];
+
+            // Check if this is a follow-up edit request
+            const isEdit = Object.keys(slides).length > 0;
+
+            const initialPrompt = isEdit ?
+                `The user wants to modify the existing presentation. Current slides: ${Object.keys(slides).length} slides.
+
+AVAILABLE TOOLS:
+- read_slide(slide_number) - Read current content of a slide
+- edit_slide(slide_number, html) - Modify or replace a specific slide
+- delete_slide(slide_number) - Delete a slide completely
+
+User request: ${prompt}
+
+Process the user's request using the appropriate tools. For edits, provide complete HTML for the slide with class="slide" structure.` :
+
+                `Create a professional HTML presentation using tool calls. For each slide, call edit_slide(slide_number, html) with the complete HTML.
+
+REQUIRED CSS STRUCTURE FOR EACH SLIDE:
+\`\`\`html
+<div class="slide">
+    <div class="slide-number">1</div>
+    <!-- slide content here -->
+</div>
+\`\`\`
+
+REQUIREMENTS:
+- Each slide must be a div with class="slide"
+- Include slide numbers
+- Professional styling with gradients and modern design
+- Clear, engaging content structure
+- Make 5-8 slides total
+
+Topic: ${prompt}
+
+Use the edit_slide tool to create each slide with complete HTML. Start with slide 1 and work through the presentation.`;
+
+            chatLog.innerHTML += `<span class="font-bold text-blue-300">User:</span> ${prompt}\n`;
+
+            const loadingIndicator = document.createElement('span');
+            loadingIndicator.textContent = "Claude is generating your presentation...";
+            loadingIndicator.classList.add("text-gray-500");
+            chatLog.appendChild(loadingIndicator);
+            chatLog.scrollTop = chatLog.scrollHeight;
+
+            // Clear previous slides for new presentations
+            if (!isEdit) {
+                slides = {};
+            }
+
+            try {
+                // Start conversation with initial message
+                let messages = [
+                    {
+                        role: 'user',
+                        content: initialPrompt,
+                    }
+                ];
+
+                // Tool use conversation loop
+                let conversationComplete = false;
+                let iterationCount = 0;
+                const maxIterations = 10;
+
+                while (!conversationComplete && iterationCount < maxIterations) {
+                    iterationCount++;
+
+                    const response = await fetch(ANTHROPIC_API_ENDPOINT, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey,
+                            'anthropic-version': '2023-06-01',
+                            'anthropic-dangerous-direct-browser-access': 'true'
+                        },
+                        body: JSON.stringify({
+                            model: 'claude-sonnet-4-20250514',
+                            max_tokens: 32000,
+                            messages: messages,
+                            tools: tools,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(`API Error: ${response.status} - ${errorData.error.message}`);
+                    }
+
+                    const responseData = await response.json();
+
+                    // Add Claude's response to conversation
+                    messages.push({
+                        role: 'assistant',
+                        content: responseData.content
+                    });
+
+                    // Process Claude's response
+                    let toolResults = [];
+                    let hasToolUse = false;
+
+                    if (responseData.content) {
+                        for (const contentBlock of responseData.content) {
+                            if (contentBlock.type === 'text') {
+                                chatLog.innerHTML += contentBlock.text + '\n';
+                            } else if (contentBlock.type === 'tool_use') {
+                                hasToolUse = true;
+                                const toolCall = contentBlock;
+
+                                // Execute the tool and collect results
+                                let toolResult = null;
+
+                                if (toolCall.name === 'read_slide') {
+                                    const { slide_number } = toolCall.input;
+                                    const slideContent = slides[slide_number];
+
+                                    if (slideContent) {
+                                        chatLog.innerHTML += `<span class="text-yellow-400">👁️ Reading slide ${slide_number}</span>\n`;
+                                        toolResult = {
+                                            type: "tool_result",
+                                            tool_use_id: toolCall.id,
+                                            content: slideContent
+                                        };
+                                    } else {
+                                        chatLog.innerHTML += `<span class="text-red-400">❌ Slide ${slide_number} not found</span>\n`;
+                                        toolResult = {
+                                            type: "tool_result",
+                                            tool_use_id: toolCall.id,
+                                            content: `Slide ${slide_number} does not exist.`
+                                        };
+                                    }
+                                } else if (toolCall.name === 'edit_slide') {
+                                    const { slide_number, html } = toolCall.input;
+                                    slides[slide_number] = html;
+
+                                    chatLog.innerHTML += `<span class="text-blue-400">🔧 Created/edited slide ${slide_number}</span>\n`;
+                                    toolResult = {
+                                        type: "tool_result",
+                                        tool_use_id: toolCall.id,
+                                        content: `Successfully created/edited slide ${slide_number}.`
+                                    };
+                                } else if (toolCall.name === 'delete_slide') {
+                                    const { slide_number } = toolCall.input;
+
+                                    if (slides[slide_number]) {
+                                        delete slides[slide_number];
+                                        renumberSlides();
+                                        chatLog.innerHTML += `<span class="text-red-400">🗑️ Deleted slide ${slide_number}</span>\n`;
+                                        toolResult = {
+                                            type: "tool_result",
+                                            tool_use_id: toolCall.id,
+                                            content: `Successfully deleted slide ${slide_number}. Slides have been renumbered.`
+                                        };
+                                    } else {
+                                        chatLog.innerHTML += `<span class="text-red-400">❌ Slide ${slide_number} not found</span>\n`;
+                                        toolResult = {
+                                            type: "tool_result",
+                                            tool_use_id: toolCall.id,
+                                            content: `Slide ${slide_number} does not exist.`
+                                        };
+                                    }
+                                }
+
+                                if (toolResult) {
+                                    toolResults.push(toolResult);
+                                }
+                            }
+                        }
+                    }
+
+                    // If Claude used tools, send tool results back
+                    if (hasToolUse) {
+                        messages.push({
+                            role: 'user',
+                            content: toolResults
+                        });
+                    } else {
+                        // No tool use means Claude is done
+                        conversationComplete = true;
+                    }
+
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                }
+
+                loadingIndicator.remove();
+
+                // Build final HTML from all slides
+                const finalHTML = buildFinalHTML();
+                return finalHTML;
+
+            } catch (error) {
+                if (loadingIndicator.parentNode) {
+                    loadingIndicator.remove();
+                }
+                chatLog.innerHTML += `<span class="text-red-400">Error: ${error.message}</span>\n`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+                throw error;
+            }
+        }
+
+        // Process tool calls and build final HTML
+        function buildFinalHTML() {
+            const sortedSlides = Object.keys(slides)
+                .map(num => parseInt(num))
+                .sort((a, b) => a - b)
+                .map(num => slides[num]);
+
+            const slideHTML = sortedSlides.join('\n');
+
+            return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generated Presentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px 0;
+        }
+
+        .presentation-container {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .slide {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            width: 800px;
+            height: 450px;
+            padding: 40px;
+            margin: 20px auto;
+            position: relative;
+            overflow: hidden;
+            page-break-after: always;
+            break-after: page;
+            box-sizing: border-box;
+        }
+
+        .slide:last-child {
+            page-break-after: avoid;
+            break-after: avoid;
+        }
+
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 8px;
+            background: linear-gradient(90deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #ffecd2);
+        }
+
+        .slide-number {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        @media print {
+            body {
+                background: none;
+            }
+            .slide {
+                page-break-inside: avoid;
+                break-inside: avoid;
+                width: 800px;
+                height: 450px;
+            }
+            @page {
+                size: 800px 450px;
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation-container">
+        ${slideHTML}
+    </div>
+</body>
+</html>`;
+        }
+
+        // Extract HTML from Claude's response
+        function extractHTML(response) {
+            // Look for HTML content in the response
+            const htmlMatch = response.match(/```html\s*([\s\S]*?)\s*```/);
+            if (htmlMatch) {
+                return htmlMatch[1];
+            }
+
+            // Look for DOCTYPE or html tag
+            const doctypeMatch = response.match(/(<!DOCTYPE[\s\S]*)/);
+            if (doctypeMatch) {
+                return doctypeMatch[1];
+            }
+
+            // If we can't find HTML, return the whole response (Claude might have generated HTML directly)
+            return response;
+        }
+
+        // Convert HTML to PDF using CloudConvert
+        async function convertHTMLToPDF(htmlContent) {
+            const apiKey = cloudconvertApiKey.value.trim();
+            if (!apiKey) {
+                throw new Error('CloudConvert API key is required');
+            }
+
+            // Create conversion job
+            const jobResponse = await fetch(`${CLOUDCONVERT_API_ENDPOINT}/jobs`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    tasks: {
+                        'import-html': {
+                            operation: 'import/upload'
+                        },
+                        'convert-to-pdf': {
+                            operation: 'convert',
+                            input: 'import-html',
+                            input_format: 'html',
+                            output_format: 'pdf'
+                        },
+                        'export-pdf': {
+                            operation: 'export/url',
+                            input: 'convert-to-pdf'
+                        }
+                    }
+                })
+            });
+
+            if (!jobResponse.ok) {
+                throw new Error('Failed to create CloudConvert job');
+            }
+
+            const job = await jobResponse.json();
+            const uploadTask = job.data.tasks.find(t => t.name === 'import-html');
+
+            // Upload HTML content
+            const formData = new FormData();
+            Object.entries(uploadTask.result.form.parameters).forEach(([key, value]) => {
+                formData.append(key, value);
+            });
+            formData.append('file', new Blob([htmlContent], { type: 'text/html' }), 'presentation.html');
+
+            const uploadResponse = await fetch(uploadTask.result.form.url, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!uploadResponse.ok) {
+                throw new Error('Failed to upload HTML to CloudConvert');
+            }
+
+            // Wait for conversion to complete
+            const exportTask = job.data.tasks.find(t => t.name === 'export-pdf');
+            let attempts = 0;
+            const maxAttempts = 30;
+
+            while (attempts < maxAttempts) {
+                const statusResponse = await fetch(`${CLOUDCONVERT_API_ENDPOINT}/tasks/${exportTask.id}`, {
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
+
+                const taskStatus = await statusResponse.json();
+
+                if (taskStatus.data.status === 'finished') {
+                    return taskStatus.data.result.files[0].url;
+                } else if (taskStatus.data.status === 'error') {
+                    throw new Error('PDF conversion failed');
+                }
+
+                attempts++;
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+            }
+
+            throw new Error('PDF conversion timed out');
+        }
+
+        // Convert PDF to PPTX using CloudConvert
+        async function convertPDFToPPTX(pdfUrl) {
+            const apiKey = cloudconvertApiKey.value.trim();
+            if (!apiKey) {
+                throw new Error('CloudConvert API key is required');
+            }
+
+            // Create conversion job
+            const jobResponse = await fetch(`${CLOUDCONVERT_API_ENDPOINT}/jobs`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    tasks: {
+                        'import-pdf': {
+                            operation: 'import/url',
+                            url: pdfUrl
+                        },
+                        'convert-to-pptx': {
+                            operation: 'convert',
+                            input: 'import-pdf',
+                            input_format: 'pdf',
+                            output_format: 'pptx'
+                        },
+                        'export-pptx': {
+                            operation: 'export/url',
+                            input: 'convert-to-pptx'
+                        }
+                    }
+                })
+            });
+
+            if (!jobResponse.ok) {
+                throw new Error('Failed to create PPTX conversion job');
+            }
+
+            const job = await jobResponse.json();
+            const exportTask = job.data.tasks.find(t => t.name === 'export-pptx');
+
+            // Wait for conversion to complete
+            let attempts = 0;
+            const maxAttempts = 30;
+
+            while (attempts < maxAttempts) {
+                const statusResponse = await fetch(`${CLOUDCONVERT_API_ENDPOINT}/tasks/${exportTask.id}`, {
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
+
+                const taskStatus = await statusResponse.json();
+
+                if (taskStatus.data.status === 'finished') {
+                    return taskStatus.data.result.files[0].url;
+                } else if (taskStatus.data.status === 'error') {
+                    throw new Error('PPTX conversion failed');
+                }
+
+                attempts++;
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            throw new Error('PPTX conversion timed out');
+        }
+
+        // Main generation function
+        generatePresentation.addEventListener('click', async () => {
+            const prompt = promptInput.value.trim();
+            if (!prompt) {
+                chatLog.innerHTML += `<span class="text-red-400">Please enter a description for your presentation.</span>\n`;
+                return;
+            }
+
+            if (!anthropicApiKey.value.trim() || !cloudconvertApiKey.value.trim()) {
+                chatLog.innerHTML += `<span class="text-red-400">Please enter both API keys first.</span>\n`;
+                return;
+            }
+
+            try {
+                // Show progress
+                progressSection.classList.remove('hidden');
+                previewSection.classList.add('hidden');
+
+                // Step 1: Generate slides with Claude using tool calls
+                updateProgress(20, 'Generating presentation with Claude...');
+                generatedHTML = await generateWithClaude(prompt);
+
+                // Step 2: Show preview and stop
+                updateProgress(100, 'Preview ready! Review your presentation below.');
+                previewFrame.srcdoc = generatedHTML;
+                previewSection.classList.remove('hidden');
+
+                chatLog.innerHTML += `<span class="text-green-400">✅ Presentation preview ready! Review it below and click "Download PowerPoint" when ready.</span>\n`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+
+            } catch (error) {
+                console.error('Generation error:', error);
+                chatLog.innerHTML += `<span class="text-red-400">❌ Error: ${error.message}</span>\n`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+                progressSection.classList.add('hidden');
+            }
+        });
+
+        // Download PPTX
+        downloadPPTX.addEventListener('click', async () => {
+            if (!generatedHTML) {
+                chatLog.innerHTML += `<span class="text-red-400">No presentation to convert. Generate one first.</span>\n`;
+                return;
+            }
+
+            if (finalPPTXUrl) {
+                // Already converted, just download
+                const a = document.createElement('a');
+                a.href = finalPPTXUrl;
+                a.download = 'presentation.pptx';
+                a.click();
+                return;
+            }
+
+            try {
+                // Show conversion progress
+                progressSection.classList.remove('hidden');
+                downloadPPTX.disabled = true;
+                downloadPPTX.textContent = 'Converting...';
+
+                // Step 1: Convert HTML to PDF
+                updateProgress(30, 'Converting to PDF...');
+                const pdfUrl = await convertHTMLToPDF(generatedHTML);
+
+                // Step 2: Convert PDF to PPTX
+                updateProgress(70, 'Converting to PowerPoint...');
+                finalPPTXUrl = await convertPDFToPPTX(pdfUrl);
+
+                // Step 3: Complete and download
+                updateProgress(100, 'Download ready!');
+
+                const a = document.createElement('a');
+                a.href = finalPPTXUrl;
+                a.download = 'presentation.pptx';
+                a.click();
+
+                chatLog.innerHTML += `<span class="text-green-400">✅ PowerPoint downloaded successfully!</span>\n`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+
+            } catch (error) {
+                console.error('Conversion error:', error);
+                chatLog.innerHTML += `<span class="text-red-400">❌ Conversion error: ${error.message}</span>\n`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+            } finally {
+                downloadPPTX.disabled = false;
+                downloadPPTX.textContent = '📥 Download PowerPoint';
+                progressSection.classList.add('hidden');
+            }
+        });
+
+        // Edit presentation
+        editPresentation.addEventListener('click', () => {
+            promptInput.value = 'Please modify the presentation: ';
+            promptInput.focus();
+        });
+
+        // Initialize
+        loadApiKeys();
+    </script>
+</body>
+</html>
