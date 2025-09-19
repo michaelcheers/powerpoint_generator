@@ -679,6 +679,48 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             throw new Error('PDF conversion timed out');
         }
 
+        // Crop PDF to extract slide content using PDF-lib
+        async function cropPDF(pdfUrl) {
+            // Download the PDF
+            const response = await fetch(pdfUrl);
+            const pdfBytes = await response.arrayBuffer();
+
+            // Load PDF with PDF-lib
+            const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
+            const pages = pdfDoc.getPages();
+
+            // Crop settings (matching your successful command)
+            const cropLeft = 100;
+            const cropRight = 100;
+            const cropTop = 150;
+            const cropBottom = 160;
+
+            // Crop each page
+            for (const page of pages) {
+                const { width, height } = page.getSize();
+
+                // Calculate new boundaries
+                const newLeft = cropLeft;
+                const newBottom = cropBottom;
+                const newWidth = width - cropLeft - cropRight;
+                const newHeight = height - cropTop - cropBottom;
+
+                // Make sure we don't over-crop
+                if (newWidth > 0 && newHeight > 0) {
+                    // Set new crop box
+                    page.setCropBox(newLeft, newBottom, newWidth, newHeight);
+                    page.setMediaBox(newLeft, newBottom, newWidth, newHeight);
+                }
+            }
+
+            // Save the cropped PDF
+            const croppedPdfBytes = await pdfDoc.save();
+
+            // Convert to blob and create URL
+            const blob = new Blob([croppedPdfBytes], { type: 'application/pdf' });
+            return URL.createObjectURL(blob);
+        }
+
         // Convert PDF to PPTX using CloudConvert
         async function convertPDFToPPTX(pdfUrl) {
             const apiKey = cloudconvertApiKey.value.trim();
@@ -807,12 +849,16 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                 downloadPPTX.textContent = 'Converting...';
 
                 // Step 1: Convert HTML to PDF
-                updateProgress(30, 'Converting to PDF...');
+                updateProgress(25, 'Converting to PDF...');
                 const pdfUrl = await convertHTMLToPDF(generatedHTML);
 
-                // Step 2: Convert PDF to PPTX
-                updateProgress(70, 'Converting to PowerPoint...');
-                finalPPTXUrl = await convertPDFToPPTX(pdfUrl);
+                // Step 2: Crop PDF to extract slide content
+                updateProgress(50, 'Cropping PDF slides...');
+                const croppedPdfUrl = await cropPDF(pdfUrl);
+
+                // Step 3: Convert cropped PDF to PPTX
+                updateProgress(75, 'Converting to PowerPoint...');
+                finalPPTXUrl = await convertPDFToPPTX(croppedPdfUrl);
 
                 // Step 3: Complete and download
                 updateProgress(100, 'Download ready!');
