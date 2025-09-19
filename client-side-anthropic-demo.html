@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anthropic API Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .chat-container {
+            height: 60vh;
+            overflow-y: auto;
+            border-radius: 0.5rem;
+            background-color: #2D3748;
+            padding: 1rem;
+            color: #E2E8F0;
+        }
+        /* Custom scrollbar for a sleek look */
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-container::-webkit-scrollbar-track {
+            background: #1A202C;
+            border-radius: 10px;
+        }
+        .chat-container::-webkit-scrollbar-thumb {
+            background-color: #4A5568;
+            border-radius: 10px;
+            border: 2px solid #1A202C;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col space-y-6">
+
+        <h1 class="text-3xl font-bold text-center text-white">Anthropic API Chat</h1>
+
+        <!-- API Key Input Section -->
+        <div class="p-4 rounded-lg bg-red-800 text-white">
+            <h2 class="font-bold text-lg mb-2">Security Warning</h2>
+            <p class="text-sm">
+                This app uses a "bring your own key" model. Your API key will be stored in your browser's local storage and used for direct calls to the Anthropic API. Be aware that this exposes your key on the client side. For production applications, a server-side proxy is a much more secure approach.
+            </p>
+        </div>
+
+        <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+            <input type="password" id="apiKeyInput" placeholder="Enter your Anthropic API Key"
+                   class="flex-1 p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button id="saveKeyBtn"
+                    class="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                Save Key
+            </button>
+        </div>
+
+        <!-- Chat Section -->
+        <div class="flex-1 min-h-[300px] h-full chat-container">
+            <p id="chatLog" class="whitespace-pre-wrap"></p>
+        </div>
+
+        <!-- User Prompt Section -->
+        <div class="flex flex-col space-y-4">
+            <textarea id="promptInput" rows="3" placeholder="Type your message here..."
+                      class="w-full p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+            <button id="sendBtn"
+                    class="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                Send
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        window.onload = () => {
+            const apiKeyInput = document.getElementById('apiKeyInput');
+            const saveKeyBtn = document.getElementById('saveKeyBtn');
+            const promptInput = document.getElementById('promptInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const chatLog = document.getElementById('chatLog');
+
+            // Set the Anthropic API endpoint
+            const API_ENDPOINT = 'https://api.anthropic.com/v1/messages';
+
+            // Function to load API key from local storage
+            const loadApiKey = () => {
+                const storedKey = localStorage.getItem('anthropicApiKey');
+                if (storedKey) {
+                    apiKeyInput.value = storedKey;
+                    chatLog.innerHTML = `<span class="text-green-400">API Key loaded. You can now chat!</span>\n`;
+                } else {
+                    chatLog.innerHTML = `<span class="text-yellow-400">Please enter and save your API key to begin.</span>\n`;
+                }
+            };
+
+            // Event listener to save the API key
+            saveKeyBtn.addEventListener('click', () => {
+                const key = apiKeyInput.value.trim();
+                if (key) {
+                    localStorage.setItem('anthropicApiKey', key);
+                    chatLog.innerHTML = `<span class="text-green-400">API Key saved successfully!</span>\n`;
+                } else {
+                    chatLog.innerHTML = `<span class="text-red-400">Please enter a valid API key.</span>\n`;
+                }
+            });
+
+            // Event listener to send the message
+            sendBtn.addEventListener('click', async () => {
+                const apiKey = apiKeyInput.value.trim();
+                const prompt = promptInput.value.trim();
+
+                if (!apiKey) {
+                    chatLog.innerHTML += `<span class="text-red-400">Error: Please enter your API key first.</span>\n`;
+                    return;
+                }
+
+                if (!prompt) {
+                    chatLog.innerHTML += `<span class="text-red-400">Error: Please enter a message.</span>\n`;
+                    return;
+                }
+
+                // Append user message to the chat log
+                chatLog.innerHTML += `<span class="font-bold text-blue-300">User:</span> ${prompt}\n`;
+                promptInput.value = ''; // Clear the input
+
+                // Add a loading indicator
+                const loadingIndicator = document.createElement('span');
+                loadingIndicator.textContent = "Claude is thinking...";
+                loadingIndicator.classList.add("text-gray-500");
+                chatLog.appendChild(loadingIndicator);
+                chatLog.scrollTop = chatLog.scrollHeight; // Scroll to bottom
+
+                try {
+                    const response = await fetch(API_ENDPOINT, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey,
+                            'anthropic-version': '2023-06-01',
+                            // IMPORTANT: This header is required to enable CORS for client-side access.
+                            // Use with caution and only for "bring your own key" scenarios.
+                            'anthropic-dangerous-direct-browser-access': 'true'
+                        },
+                        body: JSON.stringify({
+                            model: 'claude-3-opus-20240229', // You can change the model here
+                            max_tokens: 1024,
+                            messages: [
+                                {
+                                    role: 'user',
+                                    content: prompt,
+                                },
+                            ],
+                            stream: true,
+                        }),
+                    });
+
+                    // Remove the loading indicator
+                    loadingIndicator.remove();
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(`API Error: ${response.status} - ${errorData.error.message}`);
+                    }
+
+                    // Start of the Claude response
+                    chatLog.innerHTML += `<span class="font-bold text-teal-300">Claude:</span> `;
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    let done = false;
+
+                    while (!done) {
+                        const { value, done: doneReading } = await reader.read();
+                        done = doneReading;
+                        const chunk = decoder.decode(value, { stream: true });
+                        
+                        // Parse the SSE chunks from the stream
+                        chunk.split('\n\n').forEach(event => {
+                            if (event.startsWith('event: message_stream_event') && event.includes('data:')) {
+                                const data = event.substring(event.indexOf('data:') + 5).trim();
+                                if (data) {
+                                    try {
+                                        const parsedData = JSON.parse(data);
+                                        // The text is in different locations depending on the event type
+                                        if (parsedData.type === 'content_block_delta' && parsedData.delta.text) {
+                                            chatLog.innerHTML += parsedData.delta.text;
+                                        }
+                                    } catch (e) {
+                                        console.error("Failed to parse JSON:", e);
+                                    }
+                                }
+                            }
+                        });
+                        chatLog.scrollTop = chatLog.scrollHeight; // Keep scrolling to the bottom
+                    }
+                    
+                    chatLog.innerHTML += `\n`; // Add a newline after the response
+
+                } catch (error) {
+                    console.error("There was an error:", error);
+                    // Remove loading indicator if still present
+                    if (loadingIndicator.parentNode) {
+                        loadingIndicator.remove();
+                    }
+                    // Append the error message to the chat log
+                    chatLog.innerHTML += `<span class="text-red-400">Error: ${error.message}</span>\n`;
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                }
+            });
+
+            // Load the key on initial page load
+            loadApiKey();
+        };
+    </script>
+</body>
+</html>
