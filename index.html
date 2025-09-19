@@ -679,9 +679,9 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             throw new Error('PDF conversion timed out');
         }
 
-        // Crop PDF to extract slide content using PDF-lib
-        async function cropPDF(pdfUrl) {
-            // Download the PDF
+        // Crop PDF and convert to PPTX using CloudConvert
+        async function convertPDFToPPTX(pdfUrl) {
+            // First crop the PDF
             const response = await fetch(pdfUrl);
             const pdfBytes = await response.arrayBuffer();
 
@@ -716,13 +716,7 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             // Save the cropped PDF
             const croppedPdfBytes = await pdfDoc.save();
 
-            // Convert to blob and create URL
-            const blob = new Blob([croppedPdfBytes], { type: 'application/pdf' });
-            return URL.createObjectURL(blob);
-        }
-
-        // Convert PDF to PPTX using CloudConvert
-        async function convertPDFToPPTX(pdfUrl) {
+            // Now convert cropped PDF to PPTX using CloudConvert
             const apiKey = cloudconvertApiKey.value.trim();
             if (!apiKey) {
                 throw new Error('CloudConvert API key is required');
@@ -738,8 +732,7 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                 body: JSON.stringify({
                     tasks: {
                         'import-pdf': {
-                            operation: 'import/url',
-                            url: pdfUrl
+                            operation: 'import/upload'
                         },
                         'convert-to-pptx': {
                             operation: 'convert',
@@ -760,6 +753,24 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             }
 
             const job = await jobResponse.json();
+            const uploadTask = job.data.tasks.find(t => t.name === 'import-pdf');
+
+            // Upload cropped PDF content
+            const formData = new FormData();
+            Object.entries(uploadTask.result.form.parameters).forEach(([key, value]) => {
+                formData.append(key, value);
+            });
+            formData.append('file', new Blob([croppedPdfBytes], { type: 'application/pdf' }), 'cropped-presentation.pdf');
+
+            const uploadResponse = await fetch(uploadTask.result.form.url, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!uploadResponse.ok) {
+                throw new Error('Failed to upload cropped PDF to CloudConvert');
+            }
+
             const exportTask = job.data.tasks.find(t => t.name === 'export-pptx');
 
             // Wait for conversion to complete
@@ -849,16 +860,12 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                 downloadPPTX.textContent = 'Converting...';
 
                 // Step 1: Convert HTML to PDF
-                updateProgress(25, 'Converting to PDF...');
+                updateProgress(30, 'Converting to PDF...');
                 const pdfUrl = await convertHTMLToPDF(generatedHTML);
 
-                // Step 2: Crop PDF to extract slide content
-                updateProgress(50, 'Cropping PDF slides...');
-                const croppedPdfUrl = await cropPDF(pdfUrl);
-
-                // Step 3: Convert cropped PDF to PPTX
-                updateProgress(75, 'Converting to PowerPoint...');
-                finalPPTXUrl = await convertPDFToPPTX(croppedPdfUrl);
+                // Step 2: Crop PDF and convert to PPTX
+                updateProgress(70, 'Cropping PDF and converting to PowerPoint...');
+                finalPPTXUrl = await convertPDFToPPTX(pdfUrl);
 
                 // Step 3: Complete and download
                 updateProgress(100, 'Download ready!');
