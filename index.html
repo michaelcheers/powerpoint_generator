@@ -128,11 +128,38 @@
             </div>
         </div>
 
+        <!-- PDF Fix Section -->
+        <div id="pdfFixSection" class="bg-gray-800 p-6 rounded-xl hidden">
+            <h2 class="text-xl font-bold mb-4 text-white">🔧 PDF Compatibility Fix</h2>
+            <div class="bg-yellow-800 p-4 rounded-lg mb-4">
+                <p class="text-yellow-200 mb-3">
+                    <strong>Manual Step Required:</strong> To ensure PowerPoint compatibility, please:
+                </p>
+                <ol class="text-yellow-200 ml-4 space-y-2">
+                    <li>1. Download the PDF below</li>
+                    <li>2. Open it and use "Microsoft Print to PDF" to re-save it</li>
+                    <li>3. Upload the re-saved PDF to continue</li>
+                </ol>
+            </div>
+            <div class="flex gap-4 mb-4">
+                <button id="downloadPDF" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md transition-colors">
+                    📥 Download PDF
+                </button>
+            </div>
+            <div class="space-y-4">
+                <input type="file" id="uploadFixedPDF" accept=".pdf" class="w-full p-3 rounded-md bg-gray-700 text-white file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-gray-600 file:text-white">
+                <button id="continueWithFixedPDF" class="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-md transition-colors" disabled>
+                    ✅ Continue to PowerPoint Conversion
+                </button>
+            </div>
+        </div>
+
     </div>
 
     <script>
         // Global variables
         let generatedHTML = '';
+        let initialPdfUrl = '';
         let finalPPTXUrl = '';
 
         // API endpoints
@@ -154,6 +181,10 @@
         const previewFrame = document.getElementById('previewFrame');
         const downloadPPTX = document.getElementById('downloadPPTX');
         const editPresentation = document.getElementById('editPresentation');
+        const pdfFixSection = document.getElementById('pdfFixSection');
+        const downloadPDF = document.getElementById('downloadPDF');
+        const uploadFixedPDF = document.getElementById('uploadFixedPDF');
+        const continueWithFixedPDF = document.getElementById('continueWithFixedPDF');
 
         // Load saved API keys
         function loadApiKeys() {
@@ -680,41 +711,53 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
         }
 
         // Crop PDF and convert to PPTX using CloudConvert
-        async function convertPDFToPPTX(pdfUrl) {
-            // First crop the PDF
-            const response = await fetch(pdfUrl);
-            const pdfBytes = await response.arrayBuffer();
+        async function convertPDFToPPTX(pdfUrl, skipCropping = false) {
+            let pdfBytes;
 
-            // Load PDF with PDF-lib
-            const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
-            const pages = pdfDoc.getPages();
-
-            // Crop settings (matching your successful command)
-            const cropLeft = 100;
-            const cropRight = 100;
-            const cropTop = 150;
-            const cropBottom = 160;
-
-            // Crop each page
-            for (const page of pages) {
-                const { width, height } = page.getSize();
-
-                // Calculate new boundaries
-                const newLeft = cropLeft;
-                const newBottom = cropBottom;
-                const newWidth = width - cropLeft - cropRight;
-                const newHeight = height - cropTop - cropBottom;
-
-                // Make sure we don't over-crop
-                if (newWidth > 0 && newHeight > 0) {
-                    // Set new crop box
-                    page.setCropBox(newLeft, newBottom, newWidth, newHeight);
-                    page.setMediaBox(newLeft, newBottom, newWidth, newHeight);
-                }
+            if (pdfUrl instanceof File) {
+                // Handle uploaded file directly
+                pdfBytes = await pdfUrl.arrayBuffer();
+            } else {
+                // Handle URL (from CloudConvert)
+                const response = await fetch(pdfUrl);
+                pdfBytes = await response.arrayBuffer();
             }
 
-            // Save the cropped PDF
-            const croppedPdfBytes = await pdfDoc.save();
+            // Crop the PDF (skip for manually fixed PDFs)
+            let finalPdfBytes = pdfBytes;
+
+            if (!skipCropping) {
+                // Load PDF with PDF-lib
+                const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
+                const pages = pdfDoc.getPages();
+
+                // Crop settings (matching your successful command)
+                const cropLeft = 100;
+                const cropRight = 100;
+                const cropTop = 150;
+                const cropBottom = 160;
+
+                // Crop each page
+                for (const page of pages) {
+                    const { width, height } = page.getSize();
+
+                    // Calculate new boundaries
+                    const newLeft = cropLeft;
+                    const newBottom = cropBottom;
+                    const newWidth = width - cropLeft - cropRight;
+                    const newHeight = height - cropTop - cropBottom;
+
+                    // Make sure we don't over-crop
+                    if (newWidth > 0 && newHeight > 0) {
+                        // Set new crop box
+                        page.setCropBox(newLeft, newBottom, newWidth, newHeight);
+                        page.setMediaBox(newLeft, newBottom, newWidth, newHeight);
+                    }
+                }
+
+                // Save the cropped PDF
+                finalPdfBytes = await pdfDoc.save();
+            }
 
             // Now convert cropped PDF to PPTX using CloudConvert
             const apiKey = cloudconvertApiKey.value.trim();
@@ -755,12 +798,12 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             const job = await jobResponse.json();
             const uploadTask = job.data.tasks.find(t => t.name === 'import-pdf');
 
-            // Upload cropped PDF content
+            // Upload PDF content
             const formData = new FormData();
             Object.entries(uploadTask.result.form.parameters).forEach(([key, value]) => {
                 formData.append(key, value);
             });
-            formData.append('file', new Blob([croppedPdfBytes], { type: 'application/pdf' }), 'cropped-presentation.pdf');
+            formData.append('file', new Blob([finalPdfBytes], { type: 'application/pdf' }), 'presentation.pdf');
 
             const uploadResponse = await fetch(uploadTask.result.form.url, {
                 method: 'POST',
@@ -821,12 +864,17 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                 updateProgress(20, 'Generating presentation with Claude...');
                 generatedHTML = await generateWithClaude(prompt);
 
-                // Step 2: Show preview and stop
-                updateProgress(100, 'Preview ready! Review your presentation below.');
+                // Step 2: Convert to PDF and pause for manual fix
+                updateProgress(50, 'Converting to PDF...');
+                initialPdfUrl = await convertHTMLToPDF(generatedHTML);
+
+                // Step 3: Show preview and PDF fix section
+                updateProgress(100, 'PDF ready! Please follow the compatibility fix steps below.');
                 previewFrame.srcdoc = generatedHTML;
                 previewSection.classList.remove('hidden');
+                pdfFixSection.classList.remove('hidden');
 
-                chatLog.innerHTML += `<span class="text-green-400">✅ Presentation preview ready! Review it below and click "Download PowerPoint" when ready.</span>\n`;
+                chatLog.innerHTML += `<span class="text-green-400">✅ Presentation and PDF ready! Please download the PDF and follow the compatibility fix steps.</span>\n`;
                 chatLog.scrollTop = chatLog.scrollHeight;
 
             } catch (error) {
@@ -893,6 +941,68 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
         editPresentation.addEventListener('click', () => {
             promptInput.value = 'Please modify the presentation: ';
             promptInput.focus();
+        });
+
+        // Download initial PDF for fixing
+        downloadPDF.addEventListener('click', () => {
+            if (initialPdfUrl) {
+                const a = document.createElement('a');
+                a.href = initialPdfUrl;
+                a.download = 'presentation-to-fix.pdf';
+                a.click();
+            }
+        });
+
+        // Handle fixed PDF upload
+        uploadFixedPDF.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.type === 'application/pdf') {
+                continueWithFixedPDF.disabled = false;
+                continueWithFixedPDF.textContent = '✅ Continue to PowerPoint Conversion';
+            } else {
+                continueWithFixedPDF.disabled = true;
+                continueWithFixedPDF.textContent = '❌ Please select a valid PDF file';
+            }
+        });
+
+        // Continue with fixed PDF
+        continueWithFixedPDF.addEventListener('click', async () => {
+            const file = uploadFixedPDF.files[0];
+            if (!file) return;
+
+            try {
+                // Show conversion progress
+                progressSection.classList.remove('hidden');
+                continueWithFixedPDF.disabled = true;
+                continueWithFixedPDF.textContent = 'Converting...';
+
+                // Convert fixed PDF to PPTX (skip cropping since it's already fixed)
+                updateProgress(50, 'Converting fixed PDF to PowerPoint...');
+                finalPPTXUrl = await convertPDFToPPTX(file, true);
+
+                // Complete and download
+                updateProgress(100, 'Download ready!');
+
+                const a = document.createElement('a');
+                a.href = finalPPTXUrl;
+                a.download = 'presentation.pptx';
+                a.click();
+
+                chatLog.innerHTML += `<span class="text-green-400">✅ PowerPoint downloaded successfully!</span>\n`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+
+                // Hide sections
+                pdfFixSection.classList.add('hidden');
+                progressSection.classList.add('hidden');
+
+            } catch (error) {
+                console.error('Conversion error:', error);
+                chatLog.innerHTML += `<span class="text-red-400">❌ Conversion error: ${error.message}</span>\n`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+            } finally {
+                continueWithFixedPDF.disabled = false;
+                continueWithFixedPDF.textContent = '✅ Continue to PowerPoint Conversion';
+            }
         });
 
         // Initialize
