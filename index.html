@@ -443,6 +443,13 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                                     const { slide_number, html } = toolCall.input;
                                     slides[slide_number] = html;
 
+                                    // Clear old PDF URLs since content changed
+                                    initialPdfUrl = '';
+                                    finalPPTXUrl = '';
+
+                                    // Hide PDF fix section since content changed
+                                    pdfFixSection.classList.add('hidden');
+
                                     chatLog.innerHTML += `<span class="text-blue-400">🔧 Created/edited slide ${slide_number}</span>\n`;
                                     toolResult = {
                                         type: "tool_result",
@@ -889,6 +896,11 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
 
                 chatLog.innerHTML += `<span class="text-green-400">✅ Presentation and PDF ready! Please download the PDF and follow the compatibility fix steps.</span>\n`;
                 chatLog.scrollTop = chatLog.scrollHeight;
+
+                // Add message about regenerating PDF after edits
+                if (Object.keys(slides).length > 0) {
+                    chatLog.innerHTML += `<span class="text-yellow-400">📝 Note: If you make edits, click "Generate Presentation" again to update the PDF.</span>\n`;
+                }
 
             } catch (error) {
                 console.error('Generation error:', error);
