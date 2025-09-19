@@ -978,9 +978,9 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                 continueWithFixedPDF.disabled = true;
                 continueWithFixedPDF.textContent = 'Converting...';
 
-                // Convert fixed PDF to PPTX (skip cropping since it's already fixed)
-                updateProgress(50, 'Converting fixed PDF to PowerPoint...');
-                finalPPTXUrl = await convertPDFToPPTX(file, true);
+                // Convert fixed PDF to PPTX (still need to crop after Microsoft processing)
+                updateProgress(50, 'Cropping and converting to PowerPoint...');
+                finalPPTXUrl = await convertPDFToPPTX(file, false);
 
                 // Complete and download
                 updateProgress(100, 'Download ready!');
