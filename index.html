@@ -6,6 +6,7 @@
     <title>PowerPoint Generator with Claude</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/twemoji.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -155,6 +156,21 @@
         const previewFrame = document.getElementById('previewFrame');
         const downloadPPTX = document.getElementById('downloadPPTX');
         const editPresentation = document.getElementById('editPresentation');
+
+        // Convert emojis to Twemoji
+        function convertToTwemoji(html) {
+            // Create a temporary div to process the HTML
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            
+            // Use Twemoji to parse and replace emojis
+            twemoji.parse(tempDiv, {
+                folder: 'svg',
+                ext: '.svg'
+            });
+            
+            return tempDiv.innerHTML;
+        }
 
         // Load saved API keys
         function loadApiKeys() {
@@ -559,6 +575,14 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             font-weight: bold;
         }
 
+        /* Style Twemoji images */
+        img.emoji {
+            height: 1em;
+            width: 1em;
+            margin: 0 .05em 0 .1em;
+            vertical-align: -0.1em;
+        }
+
         @media print {
             body {
                 background: none;
@@ -609,6 +633,9 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                 throw new Error('CloudConvert API key is required');
             }
 
+            // Convert emojis to Twemoji before sending to CloudConvert
+            const htmlWithTwemoji = convertToTwemoji(htmlContent);
+
             // Create conversion job
             const jobResponse = await fetch(`${CLOUDCONVERT_API_ENDPOINT}/jobs`, {
                 method: 'POST',
@@ -642,12 +669,12 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             const job = await jobResponse.json();
             const uploadTask = job.data.tasks.find(t => t.name === 'import-html');
 
-            // Upload HTML content
+            // Upload HTML content with Twemoji
             const formData = new FormData();
             Object.entries(uploadTask.result.form.parameters).forEach(([key, value]) => {
                 formData.append(key, value);
             });
-            formData.append('file', new Blob([htmlContent], { type: 'text/html' }), 'presentation.html');
+            formData.append('file', new Blob([htmlWithTwemoji], { type: 'text/html' }), 'presentation.html');
 
             const uploadResponse = await fetch(uploadTask.result.form.url, {
                 method: 'POST',
@@ -679,7 +706,7 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
                 }
 
                 attempts++;
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
             throw new Error('PDF conversion timed out');
@@ -690,57 +717,45 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             let pdfBytes;
 
             if (pdfUrl instanceof File) {
-                // Handle uploaded file directly
                 pdfBytes = await pdfUrl.arrayBuffer();
             } else {
-                // Handle URL (from CloudConvert)
                 const response = await fetch(pdfUrl);
                 pdfBytes = await response.arrayBuffer();
             }
 
-            // Crop the PDF (skip for manually fixed PDFs)
             let finalPdfBytes = pdfBytes;
 
             if (!skipCropping) {
-                // Load PDF with PDF-lib
                 const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
                 const pages = pdfDoc.getPages();
 
-                // Crop settings (matching your successful command)
                 const cropLeft = 100;
                 const cropRight = 100;
                 const cropTop = 160;
                 const cropBottom = 140;
 
-                // Crop each page
                 for (const page of pages) {
                     const { width, height } = page.getSize();
 
-                    // Calculate new boundaries
                     const newLeft = cropLeft;
                     const newBottom = cropBottom;
                     const newWidth = width - cropLeft - cropRight;
                     const newHeight = height - cropTop - cropBottom;
 
-                    // Make sure we don't over-crop
                     if (newWidth > 0 && newHeight > 0) {
-                        // Set new crop box
                         page.setCropBox(newLeft, newBottom, newWidth, newHeight);
                         page.setMediaBox(newLeft, newBottom, newWidth, newHeight);
                     }
                 }
 
-                // Save the processed PDF
                 finalPdfBytes = await pdfDoc.save();
             }
 
-            // Now convert cropped PDF to PPTX using CloudConvert
             const apiKey = cloudconvertApiKey.value.trim();
             if (!apiKey) {
                 throw new Error('CloudConvert API key is required');
             }
 
-            // Create conversion job
             const jobResponse = await fetch(`${CLOUDCONVERT_API_ENDPOINT}/jobs`, {
                 method: 'POST',
                 headers: {
@@ -773,7 +788,6 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             const job = await jobResponse.json();
             const uploadTask = job.data.tasks.find(t => t.name === 'import-pdf');
 
-            // Upload PDF content
             const formData = new FormData();
             Object.entries(uploadTask.result.form.parameters).forEach(([key, value]) => {
                 formData.append(key, value);
@@ -791,7 +805,6 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
 
             const exportTask = job.data.tasks.find(t => t.name === 'export-pptx');
 
-            // Wait for conversion to complete
             let attempts = 0;
             const maxAttempts = 30;
 
@@ -831,15 +844,12 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             }
 
             try {
-                // Show progress
                 progressSection.classList.remove('hidden');
                 previewSection.classList.add('hidden');
 
-                // Step 1: Generate slides with Claude using tool calls
                 updateProgress(20, 'Generating presentation with Claude...');
                 generatedHTML = await generateWithClaude(prompt);
 
-                // Step 2: Show preview and stop
                 updateProgress(100, 'Preview ready! Review your presentation below.');
                 previewFrame.srcdoc = generatedHTML;
                 previewSection.classList.remove('hidden');
@@ -863,7 +873,6 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             }
 
             if (finalPPTXUrl) {
-                // Already converted, just download
                 const a = document.createElement('a');
                 a.href = finalPPTXUrl;
                 a.download = 'presentation.pptx';
@@ -872,20 +881,16 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             }
 
             try {
-                // Show conversion progress
                 progressSection.classList.remove('hidden');
                 downloadPPTX.disabled = true;
                 downloadPPTX.textContent = 'Converting...';
 
-                // Step 1: Convert HTML to PDF
-                updateProgress(30, 'Converting to PDF...');
+                updateProgress(30, 'Converting emojis and generating PDF...');
                 const pdfUrl = await convertHTMLToPDF(generatedHTML);
 
-                // Step 2: Crop PDF and convert to PPTX
                 updateProgress(70, 'Cropping PDF and converting to PowerPoint...');
                 finalPPTXUrl = await convertPDFToPPTX(pdfUrl, false);
 
-                // Step 3: Complete and download
                 updateProgress(100, 'Download ready!');
 
                 const a = document.createElement('a');
@@ -913,9 +918,9 @@ Use the edit_slide tool to create each slide with complete HTML. Start with slid
             promptInput.focus();
         });
 
-
         // Initialize
         loadApiKeys();
     </script>
 </body>
 </html>
+                
